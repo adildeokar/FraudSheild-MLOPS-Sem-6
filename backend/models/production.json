@@ -1,0 +1,19 @@
+{
+  "version": "v2",
+  "model_path": "C:\\MLProjects\\MLOPS JURY\\backend\\models\\model_v2_20260409_045920.joblib",
+  "scaler_path": "C:\\MLProjects\\MLOPS JURY\\backend\\models\\scaler_v2_20260409_045920.joblib",
+  "model_type": "LogisticRegression",
+  "metrics": {
+    "accuracy": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "f1_score": 1.0,
+    "roc_auc": 1.0,
+    "true_negatives": 2900,
+    "false_positives": 0,
+    "false_negatives": 0,
+    "true_positives": 100,
+    "training_time_ms": 1436.2
+  },
+  "set_at": "2026-04-09T04:59:20.764350"
+}
