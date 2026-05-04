@@ -42,6 +42,7 @@ def load_data(filepath: str) -> pd.DataFrame:
     missing = required - set(df.columns)
     if missing:
         raise ValueError(f"Missing columns in dataset: {missing}")
+    df["Class"] = pd.to_numeric(df["Class"], errors="coerce").fillna(0).astype(np.int64)
     df = df.dropna()
     return df
 
@@ -122,11 +123,14 @@ def preprocess(X: pd.DataFrame, scaler: Optional[StandardScaler] = None, fit: bo
 
 def apply_smote(X: np.ndarray, y: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
     """Apply SMOTE to oversample minority (fraud) class on training data only."""
-    fraud_count = y.sum()
+    fraud_count = int(y.sum())
     if fraud_count < 5:
         return X, y
     k_neighbors = min(5, fraud_count - 1)
-    sm = SMOTE(sampling_strategy=0.3, k_neighbors=k_neighbors, random_state=42)
+    # Full UCI scale (~200k+ rows): milder ratio keeps training time and memory bounded
+    n_rows = len(X)
+    ratio = 0.3 if n_rows < 80_000 else 0.01
+    sm = SMOTE(sampling_strategy=ratio, k_neighbors=k_neighbors, random_state=42)
     X_res, y_res = sm.fit_resample(X, y)
     return X_res, y_res
 

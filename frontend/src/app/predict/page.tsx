@@ -3,7 +3,8 @@
 import { useState } from 'react';
 import { Shield, AlertTriangle, CheckCircle, Zap, RotateCcw, ChevronDown, ChevronUp, Clock, Cpu } from 'lucide-react';
 import {
-  predictTransaction, TransactionInput, PredictionResult,
+  predictTransaction, explainTransaction, scoreAnomaly,
+  TransactionInput, PredictionResult,
   SAMPLE_NORMAL_TRANSACTION, SAMPLE_FRAUD_TRANSACTION
 } from '@/lib/api';
 
@@ -68,6 +69,11 @@ export default function PredictPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showVFeatures, setShowVFeatures] = useState(false);
+  const [explain, setExplain] = useState<{
+    top_features?: Array<{ feature: string; shap_value: number; contribution: string }>;
+    error?: string;
+  } | null>(null);
+  const [anomaly, setAnomaly] = useState<{ anomaly_score: number; is_anomaly: boolean } | null>(null);
 
   const handleChange = (name: string, val: number) => {
     setForm(prev => ({ ...prev, [name]: val }));
@@ -76,9 +82,22 @@ export default function PredictPage() {
   const handleSubmit = async () => {
     setLoading(true);
     setError(null);
+    setExplain(null);
+    setAnomaly(null);
     try {
       const res = await predictTransaction(form);
       setResult(res);
+      const [ex, an] = await Promise.all([
+        explainTransaction(form).catch(() => ({ error: 'explain_failed' })),
+        scoreAnomaly(form).catch(() => ({ anomaly_score: 0, is_anomaly: false })),
+      ]);
+      if ('top_features' in ex && ex.top_features && ex.top_features.length > 0) {
+        setExplain({ top_features: ex.top_features });
+      } else {
+        const err = 'error' in ex && ex.error ? String(ex.error) : 'unavailable';
+        setExplain({ error: err });
+      }
+      setAnomaly(an as { anomaly_score: number; is_anomaly: boolean });
     } catch (e: any) {
       setError(e.response?.data?.detail || 'Prediction failed. Is the backend running?');
     } finally {
@@ -198,7 +217,10 @@ export default function PredictPage() {
               )}
             </button>
             <button
-              onClick={() => { setForm(defaultTransaction); setResult(null); setError(null); }}
+              onClick={() => {
+                setForm(defaultTransaction); setResult(null); setError(null);
+                setExplain(null); setAnomaly(null);
+              }}
               className="px-4 py-3.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
               title="Reset"
             >
@@ -271,6 +293,40 @@ export default function PredictPage() {
                   ))}
                 </div>
               </div>
+
+              {(explain?.top_features && explain.top_features.length > 0) && (
+                <div className="glass-card rounded-xl p-5 animate-slide-up">
+                  <h3 className="text-sm font-semibold text-white mb-3">SHAP — Top 5 drivers</h3>
+                  <ul className="space-y-2 text-sm">
+                    {explain.top_features.map((f) => (
+                      <li key={f.feature} className="flex justify-between items-center border-b border-slate-700/40 pb-2">
+                        <span className="text-slate-300 font-mono text-xs">{f.feature}</span>
+                        <span className={f.contribution === 'increases_fraud_risk' ? 'text-red-400' : 'text-emerald-400'}>
+                          {f.contribution === 'increases_fraud_risk' ? '+' : '−'} risk
+                          <span className="text-slate-500 ml-2 text-xs">({f.shap_value.toFixed(4)})</span>
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {explain?.error && (
+                <div className="text-xs text-slate-500 glass-card rounded-xl p-3">
+                  Explainability unavailable ({explain.error})
+                </div>
+              )}
+
+              {anomaly && (
+                <div className="glass-card rounded-xl p-5 animate-slide-up">
+                  <h3 className="text-sm font-semibold text-white mb-2">Isolation Forest (unsupervised)</h3>
+                  <div className="text-sm text-slate-300">
+                    Anomaly score: <strong>{(anomaly.anomaly_score * 100).toFixed(1)}%</strong>
+                    {anomaly.is_anomaly && (
+                      <span className="ml-2 text-amber-400 text-xs">· Pattern outlier</span>
+                    )}
+                  </div>
+                </div>
+              )}
 
               {/* Risk Level Legend */}
               <div className="glass-card rounded-xl p-5 animate-slide-up">

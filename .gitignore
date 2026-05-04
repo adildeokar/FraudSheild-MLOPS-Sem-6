@@ -26,3 +26,14 @@ yarn-error.log*
 *.swp
 .DS_Store
 Thumbs.db
+
+# Datasets (Kaggle creditcard.csv is ~144MB — exceeds GitHub limit; place locally or use Docker mount)
+/creditcard.csv
+backend/data/real_creditcard.csv
+backend/data/kaggle_creditcard_source.csv
+
+# Runtime / generated
+backend/data/fraud_detection.db
+backend/data/*.log
+backend/data/.metrics_realism_refresh_v1
+backend/models/*.joblib

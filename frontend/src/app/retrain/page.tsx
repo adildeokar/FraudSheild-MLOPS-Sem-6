@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import {
   RefreshCw, CheckCircle, XCircle, TrendingUp, TrendingDown,
   Database, Cpu, Trophy, AlertTriangle, Clock, ChevronDown, ChevronUp
@@ -9,7 +9,10 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Legend, Cell
 } from 'recharts';
-import { triggerRetrain, getModelRegistry, checkNewData, RetrainResult, ModelRegistryEntry } from '@/lib/api';
+import {
+  triggerRetrain, getModelRegistry, checkNewData, getSmartRetrainCheck, rollbackModel,
+  RetrainResult, ModelRegistryEntry,
+} from '@/lib/api';
 
 function MetricBar({ label, value, color }: { label: string; value: number; color: string }) {
   return (
@@ -32,12 +35,19 @@ export default function RetrainPage() {
   const [dataInfo, setDataInfo] = useState<any>(null);
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [smart, setSmart] = useState<any>(null);
+  const [rolling, setRolling] = useState<string | null>(null);
 
   const fetchRegistry = async () => {
     try {
-      const [reg, data] = await Promise.all([getModelRegistry(), checkNewData()]);
+      const [reg, data, sm] = await Promise.all([
+        getModelRegistry(),
+        checkNewData(),
+        getSmartRetrainCheck().catch(() => null),
+      ]);
       setRegistry(reg.models);
       setDataInfo(data);
+      setSmart(sm);
     } catch (e) {
       console.error(e);
     }
@@ -92,6 +102,28 @@ export default function RetrainPage() {
           Performance-gated model update — production model upgraded ONLY if new model is better
         </p>
       </div>
+
+      {smart && (
+        <div className={`glass-card rounded-xl p-4 mb-6 border ${
+          smart.should_retrain ? 'border-amber-500/40 bg-amber-500/5' : 'border-slate-700/50'
+        }`}>
+          <div className="text-sm font-semibold text-white mb-1">Smart retrain signals</div>
+          <p className="text-xs text-slate-400 mb-2">
+            Drift, ROC floor, and live fraud-rate heuristics (see <code className="text-violet-400">/api/retrain/smart-check</code>)
+          </p>
+          <div className="text-sm">
+            Status:{' '}
+            <span className={smart.should_retrain ? 'text-amber-400 font-semibold' : 'text-emerald-400'}>
+              {smart.should_retrain ? 'Recommend retraining' : 'No strong triggers'}
+            </span>
+          </div>
+          {smart.reasons?.length > 0 && (
+            <ul className="mt-2 text-xs text-slate-500 list-disc list-inside">
+              {smart.reasons.map((r: string) => <li key={r}>{r}</li>)}
+            </ul>
+          )}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
         {/* Retrain Panel */}
@@ -346,17 +378,17 @@ export default function RetrainPage() {
                 <th className="pb-3 pr-4 font-medium">Recall</th>
                 <th className="pb-3 pr-4 font-medium">Dataset</th>
                 <th className="pb-3 pr-4 font-medium">Status</th>
+                <th className="pb-3 pr-4 font-medium">Rollback</th>
                 <th className="pb-3 font-medium">Trained</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/50">
               {registry.length === 0 ? (
-                <tr><td colSpan={8} className="text-center py-8 text-slate-500">No models trained yet</td></tr>
+                <tr><td colSpan={9} className="text-center py-8 text-slate-500">No models trained yet</td></tr>
               ) : (
                 registry.map((model) => (
-                  <>
+                  <Fragment key={model.id}>
                     <tr
-                      key={model.id}
                       className={`hover:bg-slate-800/20 transition-colors cursor-pointer ${model.is_production ? 'bg-violet-500/5' : ''}`}
                       onClick={() => setExpandedRow(expandedRow === model.version ? null : model.version)}
                     >
@@ -387,6 +419,31 @@ export default function RetrainPage() {
                           </span>
                         )}
                       </td>
+                      <td className="py-3 pr-4">
+                        {!model.is_production ? (
+                          <button
+                            type="button"
+                            disabled={rolling === model.version}
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              setRolling(model.version);
+                              try {
+                                await rollbackModel(model.version);
+                                await fetchRegistry();
+                              } catch (err: any) {
+                                alert(err.response?.data?.detail || err.message);
+                              } finally {
+                                setRolling(null);
+                              }
+                            }}
+                            className="text-xs px-2 py-1 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200"
+                          >
+                            {rolling === model.version ? '…' : 'Rollback'}
+                          </button>
+                        ) : (
+                          <span className="text-slate-600 text-xs">—</span>
+                        )}
+                      </td>
                       <td className="py-3 text-slate-500 text-xs">
                         {model.created_at ? new Date(model.created_at).toLocaleDateString() : '—'}
                         {expandedRow === model.version
@@ -396,7 +453,7 @@ export default function RetrainPage() {
                     </tr>
                     {expandedRow === model.version && (
                       <tr key={`${model.id}-expanded`} className="bg-slate-800/30">
-                        <td colSpan={8} className="px-4 py-4">
+                        <td colSpan={9} className="px-4 py-4">
                           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
                             {[
                               { label: 'Accuracy', value: `${(model.accuracy * 100).toFixed(2)}%` },
@@ -422,7 +479,7 @@ export default function RetrainPage() {
                         </td>
                       </tr>
                     )}
-                  </>
+                  </Fragment>
                 ))
               )}
             </tbody>

@@ -1,7 +1,7 @@
 """
 Synthetic Credit Card Fraud Dataset Generator
-Generates realistic transaction data mimicking the Kaggle Credit Card Fraud dataset.
-Features: Time, V1-V28 (PCA-transformed), Amount, Class (0=normal, 1=fraud)
+Generates transaction-like data (Time, V1–V28, Amount, Class) with deliberate
+class overlap so supervised models show realistic sub-perfect metrics — not toy 100% scores.
 """
 
 import numpy as np
@@ -10,46 +10,67 @@ from pathlib import Path
 import os
 
 
+def _sym_psd(cov: np.ndarray, floor: float = 0.15) -> np.ndarray:
+    cov = (cov + cov.T) / 2.0
+    w, v = np.linalg.eigh(cov)
+    w = np.clip(w, floor, None)
+    return (v @ np.diag(w) @ v.T).astype(np.float64)
+
+
 def generate_fraud_dataset(n_normal: int = 14500, n_fraud: int = 500, seed: int = 42) -> pd.DataFrame:
-    """Generate a synthetic credit card transaction dataset with class imbalance."""
-    np.random.seed(seed)
-
-    # --- Normal transactions ---
-    normal_v_means = np.zeros(28)
-    normal_v_cov = np.eye(28) * 0.5 + np.random.uniform(-0.1, 0.1, (28, 28))
-    np.fill_diagonal(normal_v_cov, 1.0)
-    normal_v_cov = (normal_v_cov + normal_v_cov.T) / 2  # symmetrize
-    np.fill_diagonal(normal_v_cov, 1.0)
-
-    V_normal = np.random.multivariate_normal(normal_v_means, normal_v_cov, n_normal)
-    amount_normal = np.random.lognormal(mean=3.5, sigma=1.5, size=n_normal)
-    amount_normal = np.clip(amount_normal, 0.5, 25000)
-    time_normal = np.sort(np.random.uniform(0, 172800, n_normal))
-
-    # --- Fraud transactions ---
-    fraud_v_means = np.array([
-        -3.2, 2.8, -2.1, 1.9, -1.5, 0.8, -2.4, 0.5,
-        -1.8, -3.5, 2.2, -1.7, 2.9, -4.1, 1.1, -0.9,
-        -0.5, 1.3, -0.7, 0.3, 0.8, -0.4, 0.2, -0.6,
-        0.4, -0.3, 0.7, -0.5
-    ])
-    fraud_v_cov = np.eye(28) * 1.2
-    V_fraud = np.random.multivariate_normal(fraud_v_means, fraud_v_cov, n_fraud)
-    # Add noise to some fraud V features for realism
-    V_fraud[:, 0] += np.random.normal(-1, 0.5, n_fraud)
-    V_fraud[:, 3] += np.random.normal(1, 0.4, n_fraud)
-    V_fraud[:, 9] += np.random.normal(-1.5, 0.6, n_fraud)
-
-    # Fraud amounts: mix of small and large
-    amount_fraud_small = np.random.uniform(0.5, 50, n_fraud // 2)
-    amount_fraud_large = np.random.lognormal(mean=5.5, sigma=1.0, size=n_fraud - n_fraud // 2)
-    amount_fraud = np.concatenate([amount_fraud_small, amount_fraud_large])
-    np.random.shuffle(amount_fraud)
-    amount_fraud = np.clip(amount_fraud, 0.5, 25000)
-    time_fraud = np.random.uniform(0, 172800, n_fraud)
-
-    # --- Assemble DataFrames ---
+    """
+    Generate synthetic data with heavy overlap between classes (realistic fraud is subtle).
+    """
+    rng = np.random.default_rng(seed)
     cols = [f"V{i}" for i in range(1, 29)]
+
+    # Shared background covariance (fraud hides in the bulk of normal PCA space)
+    base_cov = np.eye(28, dtype=np.float64) * 0.85
+    for i in range(28):
+        for j in range(i + 1, 28):
+            c = rng.normal(0, 0.12)
+            base_cov[i, j] = base_cov[j, i] = c
+    base_cov = _sym_psd(base_cov)
+
+    # Normal: centered near 0 with shared structure
+    normal_mean = rng.normal(0, 0.08, 28)
+    V_normal = rng.multivariate_normal(normal_mean, base_cov, n_normal)
+
+    # Fraud: mixture of (a) subtle shift + (b) samples drawn from normal-like cloud (hard fraud)
+    fraud_shift = np.array([
+        -0.9, 0.55, -0.45, 0.5, -0.35, 0.25, -0.55, 0.15,
+        -0.4, -0.65, 0.45, -0.35, 0.5, -0.75, 0.25, -0.2,
+        -0.15, 0.22, -0.18, 0.1, 0.18, -0.12, 0.08, -0.14,
+        0.1, -0.08, 0.12, -0.1,
+    ], dtype=np.float64)
+    fraud_cov = _sym_psd(base_cov + np.eye(28) * 0.35)
+
+    n_subtle = int(n_fraud * 0.55)
+    n_mixed = n_fraud - n_subtle
+    V_subtle = rng.multivariate_normal(fraud_shift, fraud_cov, n_subtle)
+    # Mixed: mostly normal distribution with slight fraud nudge (overlap / false separability)
+    V_mixed = rng.multivariate_normal(normal_mean * 0.6 + fraud_shift * 0.35, base_cov * 1.15, n_mixed)
+    V_fraud = np.vstack([V_subtle, V_mixed])
+    rng.shuffle(V_fraud)
+
+    # Global jitter on all V (reduces linear separability)
+    jitter = rng.normal(0, 0.22, V_normal.shape)
+    V_normal = V_normal + jitter
+    V_fraud = V_fraud + rng.normal(0, 0.22, V_fraud.shape)
+
+    amount_normal = rng.lognormal(mean=3.4, sigma=1.45, size=n_normal)
+    amount_normal = np.clip(amount_normal, 0.5, 25000)
+    time_normal = np.sort(rng.uniform(0, 172800, n_normal))
+
+    # Fraud amounts overlap normal (many frauds are small amounts)
+    amt_mix = rng.random(n_fraud)
+    amount_fraud = np.where(
+        amt_mix < 0.55,
+        rng.lognormal(mean=3.2, sigma=1.35, size=n_fraud),
+        rng.lognormal(mean=4.8, sigma=1.05, size=n_fraud),
+    )
+    amount_fraud = np.clip(amount_fraud, 0.5, 25000)
+    time_fraud = rng.uniform(0, 172800, n_fraud)
 
     df_normal = pd.DataFrame(V_normal, columns=cols)
     df_normal["Time"] = time_normal
@@ -64,43 +85,49 @@ def generate_fraud_dataset(n_normal: int = 14500, n_fraud: int = 500, seed: int 
     df = pd.concat([df_normal, df_fraud], ignore_index=True)
     df = df.sample(frac=1, random_state=seed).reset_index(drop=True)
 
-    # Reorder columns to match original dataset
     feature_cols = ["Time"] + cols + ["Amount", "Class"]
-    df = df[feature_cols]
-
-    return df
+    return df[feature_cols]
 
 
 def generate_new_transactions(n_normal: int = 2700, n_fraud: int = 300, seed: int = 99) -> pd.DataFrame:
-    """Generate a smaller batch of new transactions to simulate data drift & retraining trigger."""
-    np.random.seed(seed)
-
-    # Slightly different distributions to simulate data drift
-    normal_v_means = np.random.normal(0, 0.1, 28)  # slight shift
-    normal_v_cov = np.eye(28) * 1.1
-    V_normal = np.random.multivariate_normal(normal_v_means, normal_v_cov, n_normal)
-    amount_normal = np.random.lognormal(mean=3.7, sigma=1.4, size=n_normal)
-    amount_normal = np.clip(amount_normal, 0.5, 30000)
-    time_normal = np.sort(np.random.uniform(172800, 345600, n_normal))  # next 2 days
-
-    # Fraud with slightly stronger patterns (new fraud technique)
-    fraud_v_means = np.array([
-        -3.8, 3.2, -2.5, 2.3, -1.9, 1.1, -2.8, 0.7,
-        -2.2, -4.0, 2.6, -2.1, 3.3, -4.6, 1.4, -1.2,
-        -0.8, 1.6, -1.0, 0.5, 1.0, -0.6, 0.3, -0.8,
-        0.6, -0.5, 0.9, -0.7
-    ])
-    fraud_v_cov = np.eye(28) * 1.0
-    V_fraud = np.random.multivariate_normal(fraud_v_means, fraud_v_cov, n_fraud)
-    amount_fraud = np.concatenate([
-        np.random.uniform(0.5, 30, n_fraud // 2),
-        np.random.lognormal(mean=6.0, sigma=0.8, size=n_fraud - n_fraud // 2)
-    ])
-    np.random.shuffle(amount_fraud)
-    amount_fraud = np.clip(amount_fraud, 0.5, 30000)
-    time_fraud = np.random.uniform(172800, 345600, n_fraud)
-
+    """Smaller batch with drift + overlap (retraining demo)."""
+    rng = np.random.default_rng(seed)
     cols = [f"V{i}" for i in range(1, 29)]
+
+    base_cov = np.eye(28) * 0.95
+    for i in range(28):
+        for j in range(i + 1, 28):
+            c = rng.normal(0, 0.1)
+            base_cov[i, j] = base_cov[j, i] = c
+    base_cov = _sym_psd(base_cov)
+
+    normal_mean = rng.normal(0, 0.12, 28)
+    V_normal = rng.multivariate_normal(normal_mean, base_cov, n_normal)
+
+    fraud_shift = rng.normal(0, 0.35, 28) + np.array(
+        [-0.7, 0.5, -0.35, 0.45, -0.28, 0.2, -0.45, 0.12] + [0.0] * 20, dtype=np.float64
+    )[:28]
+    fraud_cov = _sym_psd(base_cov + np.eye(28) * 0.4)
+    n_subtle = int(n_fraud * 0.5)
+    V_subtle = rng.multivariate_normal(fraud_shift, fraud_cov, n_subtle)
+    V_mixed = rng.multivariate_normal(normal_mean * 0.55 + fraud_shift * 0.4, base_cov * 1.12, n_fraud - n_subtle)
+    V_fraud = np.vstack([V_subtle, V_mixed])
+    rng.shuffle(V_fraud)
+
+    V_normal += rng.normal(0, 0.24, V_normal.shape)
+    V_fraud += rng.normal(0, 0.24, V_fraud.shape)
+
+    amount_normal = rng.lognormal(mean=3.55, sigma=1.42, size=n_normal)
+    amount_normal = np.clip(amount_normal, 0.5, 30000)
+    time_normal = np.sort(rng.uniform(172800, 345600, n_normal))
+
+    amount_fraud = np.where(
+        rng.random(n_fraud) < 0.5,
+        rng.lognormal(mean=3.25, sigma=1.3, size=n_fraud),
+        rng.lognormal(mean=5.0, sigma=1.0, size=n_fraud),
+    )
+    amount_fraud = np.clip(amount_fraud, 0.5, 30000)
+    time_fraud = rng.uniform(172800, 345600, n_fraud)
 
     df_normal = pd.DataFrame(V_normal, columns=cols)
     df_normal["Time"] = time_normal
@@ -116,16 +143,14 @@ def generate_new_transactions(n_normal: int = 2700, n_fraud: int = 300, seed: in
     df = df.sample(frac=1, random_state=seed).reset_index(drop=True)
 
     feature_cols = ["Time"] + cols + ["Amount", "Class"]
-    df = df[feature_cols]
-
-    return df
+    return df[feature_cols]
 
 
 def main():
     data_dir = Path(__file__).parent
     data_dir.mkdir(exist_ok=True)
 
-    print("Generating primary training dataset...")
+    print("Generating primary training dataset (realistic overlap)...")
     df_train = generate_fraud_dataset(n_normal=14500, n_fraud=500)
     train_path = data_dir / "creditcard.csv"
     df_train.to_csv(train_path, index=False)

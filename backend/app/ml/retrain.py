@@ -14,6 +14,7 @@ from typing import Dict, Any, Optional
 from sklearn.model_selection import train_test_split
 
 from app.core.config import settings
+from app.core.data_source import get_active_training_data_path
 from app.ml.pipeline import (
     load_data, preprocess, apply_smote, get_models,
     evaluate_model, get_feature_importance, get_next_version,
@@ -38,7 +39,7 @@ def retrain_with_new_data(new_data_path: str, db=None) -> Dict[str, Any]:
     df_new = load_data(new_data_path)
 
     # Load existing training data to combine
-    existing_path = settings.TRAINING_DATA_FILE
+    existing_path = get_active_training_data_path()
     if os.path.exists(existing_path):
         print(f"[Retrain] Loading existing data from {existing_path}")
         df_existing = load_data(existing_path)

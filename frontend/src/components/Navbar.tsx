@@ -2,12 +2,14 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Shield, LayoutDashboard, Zap, BarChart3, RefreshCw, Play } from 'lucide-react';
+import { Shield, LayoutDashboard, Zap, BarChart3, RefreshCw, Play, Activity, FlaskConical } from 'lucide-react';
 
 const navLinks = [
   { href: '/', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/predict', label: 'Live Predict', icon: Zap },
   { href: '/analytics', label: 'Analytics', icon: BarChart3 },
+  { href: '/stream', label: 'Stream', icon: Activity },
+  { href: '/scenario', label: 'Scenarios', icon: FlaskConical },
   { href: '/retrain', label: 'Retrain', icon: RefreshCw },
 ];
 

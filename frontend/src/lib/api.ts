@@ -3,8 +3,8 @@ import axios from 'axios';
 // Use /backend proxy (rewrites in next.config.js) in browser, direct URL in Docker
 const getBaseURL = () => {
   if (typeof window !== 'undefined') {
-    // Browser: use Next.js proxy to avoid CORS
-    return '/backend/api';
+    // Browser: same-origin /api → Next rewrites to FastAPI (see next.config.js)
+    return '/api';
   }
   // Server-side: direct backend URL
   return `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api`;
@@ -172,6 +172,123 @@ export const getFeatureImportance = async (): Promise<FeatureImportance> => {
 export const getHealth = async () => {
   const res = await api.get('/health');
   return res.data;
+};
+
+// ---- Advanced APIs ----
+
+export const getDataSource = async () => {
+  const res = await api.get('/data/source');
+  return res.data as { source: string; effective: string; training_path: string };
+};
+
+export const switchDataSource = async (source: 'synthetic' | 'real' | 'uploaded') => {
+  const res = await api.post('/data/switch', { source });
+  return res.data;
+};
+
+export const prepareRealDataset = async (localPath?: string) => {
+  const res = await api.post('/data/prepare-real', { local_path: localPath ?? null });
+  return res.data;
+};
+
+export const uploadDataset = async (file: File) => {
+  const form = new FormData();
+  form.append('file', file);
+  const res = await api.post('/data/upload', form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+  return res.data;
+};
+
+export const getDrift = async () => {
+  const res = await api.get('/drift');
+  return res.data;
+};
+
+export const getOptimalThreshold = async () => {
+  const res = await api.get('/threshold/optimal');
+  return res.data;
+};
+
+export const explainTransaction = async (data: TransactionInput) => {
+  const res = await api.post('/explain', data);
+  return res.data as {
+    top_features?: Array<{ feature: string; shap_value: number; contribution: string }>;
+    shap_values?: Array<{ feature: string; value: number }>;
+    error?: string;
+  };
+};
+
+export const scoreAnomaly = async (data: TransactionInput) => {
+  const res = await api.post('/anomaly', data);
+  return res.data as { anomaly_score: number; is_anomaly: boolean; isolation_raw?: number };
+};
+
+export const rollbackModel = async (version: string) => {
+  const res = await api.post(`/rollback/${version}`);
+  return res.data;
+};
+
+export const startStream = async () => {
+  const res = await api.post('/stream/start');
+  return res.data;
+};
+
+export const stopStream = async () => {
+  const res = await api.post('/stream/stop');
+  return res.data;
+};
+
+export const getStreamStatus = async () => {
+  const res = await api.get('/stream/status');
+  return res.data as {
+    running: boolean;
+    stats: { total: number; fraud_flagged: number; fraud_flag_rate_pct?: number; started_at?: string };
+    recent: Array<{ fraud_probability: number; is_fraud: boolean; risk_level: string; true_label?: number }>;
+  };
+};
+
+export const runAbTest = async (
+  transaction: TransactionInput,
+  version_a?: string,
+  version_b?: string,
+) => {
+  const res = await api.post('/ab-test', { transaction, version_a, version_b });
+  return res.data;
+};
+
+export const getAbTestStats = async () => {
+  const res = await api.get('/ab-test/stats');
+  return res.data;
+};
+
+export const getSmartRetrainCheck = async () => {
+  const res = await api.get('/retrain/smart-check');
+  return res.data as {
+    should_retrain: boolean;
+    reasons: string[];
+    drift: Record<string, unknown>;
+    production_roc_auc: number;
+  };
+};
+
+export const getAnalyticsCurves = async () => {
+  const res = await api.get('/analytics/curves');
+  return res.data as {
+    roc: { fpr: number[]; tpr: number[]; auc: number };
+    pr: { precision: number[]; recall: number[] };
+    confusion_matrix: { matrix: number[][]; labels: string[][] };
+  };
+};
+
+export const getAnalyticsCorrelation = async () => {
+  const res = await api.get('/analytics/correlation');
+  return res.data as { features: string[]; correlation: number[][] };
+};
+
+export const getProductionConfusionMatrix = async () => {
+  const res = await api.get('/analytics/production-matrix');
+  return res.data as { version: string; matrix: number[][]; labels: string[][] };
 };
 
 // ---- Sample Transactions ----

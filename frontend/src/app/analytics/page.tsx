@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import {
   BarChart, Bar, LineChart, Line, ScatterChart, Scatter,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -8,7 +8,11 @@ import {
   Cell
 } from 'recharts';
 import { BarChart3, TrendingUp, Database, Filter, RefreshCw } from 'lucide-react';
-import { getStats, getHistory, getFeatureImportance, getModelRegistry, HistoryItem, ModelRegistryEntry } from '@/lib/api';
+import {
+  getStats, getHistory, getFeatureImportance, getModelRegistry,
+  getAnalyticsCurves, getAnalyticsCorrelation, getProductionConfusionMatrix,
+  HistoryItem, ModelRegistryEntry,
+} from '@/lib/api';
 
 export default function AnalyticsPage() {
   const [stats, setStats] = useState<any>(null);
@@ -17,15 +21,21 @@ export default function AnalyticsPage() {
   const [registry, setRegistry] = useState<ModelRegistryEntry[]>([]);
   const [fraudOnly, setFraudOnly] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [curves, setCurves] = useState<any>(null);
+  const [corr, setCorr] = useState<any>(null);
+  const [prodMat, setProdMat] = useState<any>(null);
 
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [s, h, fi, reg] = await Promise.all([
+      const [s, h, fi, reg, cv, co, pm] = await Promise.all([
         getStats(),
         getHistory(100, fraudOnly),
         getFeatureImportance(),
-        getModelRegistry()
+        getModelRegistry(),
+        getAnalyticsCurves().catch(() => null),
+        getAnalyticsCorrelation().catch(() => null),
+        getProductionConfusionMatrix().catch(() => null),
       ]);
       setStats(s);
       setHistory(h.predictions);
@@ -33,6 +43,9 @@ export default function AnalyticsPage() {
         setFeatureImportance(fi.feature_importance.slice(0, 15));
       }
       setRegistry(reg.models);
+      setCurves(cv);
+      setCorr(co);
+      setProdMat(pm);
     } catch (e) {
       console.error(e);
     } finally {
@@ -136,6 +149,101 @@ export default function AnalyticsPage() {
           </div>
         ))}
       </div>
+
+      {/* ROC / PR / Confusion / Heatmap */}
+      {(curves || prodMat || corr) && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+          {curves?.roc && (
+            <div className="glass-card rounded-xl p-6">
+              <h2 className="text-lg font-semibold text-white mb-2">ROC curve (holdout)</h2>
+              <p className="text-xs text-slate-500 mb-4">AUC = {curves.roc.auc?.toFixed(4) ?? '—'}</p>
+              <ResponsiveContainer width="100%" height={240}>
+                <LineChart data={(curves.roc.fpr ?? []).map((f: number, i: number) => ({
+                  fpr: f * 100, tpr: ((curves.roc.tpr ?? [])[i] ?? 0) * 100,
+                }))}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                  <XAxis tick={{ fill: '#64748b', fontSize: 10 }} dataKey="fpr" name="FPR %" />
+                  <YAxis tick={{ fill: '#64748b', fontSize: 10 }} domain={[0, 100]} />
+                  <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155' }} />
+                  <Line type="monotone" dataKey="tpr" name="TPR %" stroke="#22d3ee" strokeWidth={2} dot={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+          {curves?.pr && (
+            <div className="glass-card rounded-xl p-6">
+              <h2 className="text-lg font-semibold text-white mb-4">Precision–Recall curve</h2>
+              <ResponsiveContainer width="100%" height={240}>
+                <LineChart data={curves.pr.precision?.map((p: number, i: number) => ({
+                  rec: (curves.pr.recall[i] ?? 0) * 100,
+                  prec: p * 100,
+                }))}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                  <XAxis tick={{ fill: '#64748b', fontSize: 10 }} dataKey="rec" name="Recall %" />
+                  <YAxis tick={{ fill: '#64748b', fontSize: 10 }} domain={[0, 100]} />
+                  <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155' }} />
+                  <Line type="monotone" dataKey="prec" name="Precision %" stroke="#f472b6" strokeWidth={2} dot={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+          {prodMat?.matrix && (
+            <div className="glass-card rounded-xl p-6">
+              <h2 className="text-lg font-semibold text-white mb-4">Confusion matrix (production eval)</h2>
+              <p className="text-xs text-slate-500 mb-2">Model {prodMat.version}</p>
+              <div className="grid grid-cols-2 gap-2 max-w-xs mx-auto text-center">
+                {prodMat.matrix.flat().map((v: number, i: number) => (
+                  <div
+                    key={i}
+                    className={`rounded-lg py-6 text-xl font-bold ${
+                      i === 0 ? 'bg-emerald-500/20 text-emerald-300' :
+                      i === 3 ? 'bg-red-500/20 text-red-300' : 'bg-slate-800/80 text-slate-200'
+                    }`}
+                  >
+                    {v}
+                  </div>
+                ))}
+              </div>
+              <div className="grid grid-cols-2 gap-2 max-w-xs mx-auto text-[10px] text-slate-500 mt-2">
+                <span>TN</span><span>FP</span><span>FN</span><span>TP</span>
+              </div>
+            </div>
+          )}
+          {corr?.correlation && (
+            <div className="glass-card rounded-xl p-6 lg:col-span-2">
+              <h2 className="text-lg font-semibold text-white mb-4">Feature correlation heatmap</h2>
+              <div className="overflow-x-auto">
+                <div className="inline-grid gap-0.5" style={{
+                  gridTemplateColumns: `100px repeat(${corr.features.length}, minmax(44px,1fr))`,
+                }}>
+                  <div />
+                  {corr.features.map((f: string) => (
+                    <div key={f} className="text-[10px] text-slate-500 text-center truncate px-1">{f}</div>
+                  ))}
+                  {corr.correlation.map((row: number[], ri: number) => (
+                    <Fragment key={ri}>
+                      <div className="text-[10px] text-slate-500 pr-2 flex items-center">{corr.features[ri]}</div>
+                      {row.map((cell: number, ci: number) => (
+                        <div
+                          key={`${ri}-${ci}`}
+                          className="h-10 rounded flex items-center justify-center text-[10px] font-mono"
+                          style={{
+                            background: `rgba(129, 140, 248, ${Math.min(Math.abs(cell), 1) * 0.5 + 0.15})`,
+                            color: '#e2e8f0',
+                          }}
+                          title={`${corr.features[ri]} vs ${corr.features[ci]}: ${cell.toFixed(3)}`}
+                        >
+                          {cell.toFixed(2)}
+                        </div>
+                      ))}
+                    </Fragment>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Feature Importance */}
       <div className="glass-card rounded-xl p-6 mb-8">

@@ -4,6 +4,7 @@ sys.path.insert(0, '.')
 
 from app.ml.pipeline import run_training_pipeline
 from app.core.config import settings
+from app.core.data_source import get_active_training_data_path
 from app.db.database import init_db, SessionLocal
 
 print("Initializing database...")
@@ -11,7 +12,7 @@ init_db()
 
 db = SessionLocal()
 print("Starting training pipeline...")
-result = run_training_pipeline(settings.TRAINING_DATA_FILE, db=db)
+result = run_training_pipeline(get_active_training_data_path(), db=db)
 db.close()
 
 print("\n=== TRAINING COMPLETE ===")

@@ -1,19 +1,19 @@
 {
-  "version": "v2",
-  "model_path": "C:\\MLProjects\\MLOPS JURY\\backend\\models\\model_v2_20260409_045920.joblib",
-  "scaler_path": "C:\\MLProjects\\MLOPS JURY\\backend\\models\\scaler_v2_20260409_045920.joblib",
-  "model_type": "LogisticRegression",
+  "version": "v4",
+  "model_path": "C:\\MLProjects\\MLOPS JURY\\backend\\models\\model_v4_20260504_194422.joblib",
+  "scaler_path": "C:\\MLProjects\\MLOPS JURY\\backend\\models\\scaler_v4_20260504_194422.joblib",
+  "model_type": "RandomForest",
   "metrics": {
-    "accuracy": 1.0,
-    "precision": 1.0,
-    "recall": 1.0,
-    "f1_score": 1.0,
-    "roc_auc": 1.0,
-    "true_negatives": 2900,
-    "false_positives": 0,
-    "false_negatives": 0,
-    "true_positives": 100,
-    "training_time_ms": 1436.2
+    "accuracy": 0.998701,
+    "precision": 0.585714,
+    "recall": 0.836735,
+    "f1_score": 0.689076,
+    "roc_auc": 0.981727,
+    "true_negatives": 56806,
+    "false_positives": 58,
+    "false_negatives": 16,
+    "true_positives": 82,
+    "training_time_ms": 37625.5
   },
-  "set_at": "2026-04-09T04:59:20.764350"
+  "set_at": "2026-05-04T19:44:22.653409"
 }

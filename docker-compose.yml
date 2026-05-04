@@ -11,8 +11,11 @@ services:
     volumes:
       - ./backend/data:/app/data
       - ./backend/models:/app/models
+      # Full Kaggle/UCI creditcard.csv at repo root → in-container primary dataset
+      - ./creditcard.csv:/dataset/creditcard.csv:ro
     environment:
       - PYTHONUNBUFFERED=1
+      - CREDITCARD_DATA_FILE=/dataset/creditcard.csv
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
